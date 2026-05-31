@@ -1,6 +1,12 @@
 # start-claude
 
-Always-on Claude Code watchdog. A Windows Service that keeps at least one `claude --dangerously-skip-permissions` session alive on this machine, with a small Tailscale-reachable HTTP control API.
+Always-on Claude Code watchdog. A Windows Service that keeps at least one `claude --dangerously-skip-permissions` session alive on a machine, with a small Tailscale-reachable HTTP control API.
+
+## Why
+
+This exists for driving Claude Code remotely. When you monitor and direct your sessions from a phone, a session sometimes shuts itself down, or one session closes another by mistake. Once that happens there is nothing left running to take a command, so you wait until you are back at the laptop to start it again.
+
+This service removes that wait. It watches for a missing `claude.exe` and relaunches a session within about a minute, so a session is almost always there for your phone to reach. The HTTP API lets you check status and spawn or kill sessions remotely, and the dashboard shows what the machine is doing without physical access.
 
 ## What it does
 
