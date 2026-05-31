@@ -1,6 +1,18 @@
+---
+description: Show machine vitals and recent Claude Code sessions. Use when the user asks for a brief, wants to know what was running on this PC, wants situational awareness after coming back to the machine, or wants to resume a recent session.
+argument-hint: [skip|continue|<session-number>]
+allowed-tools: Bash(pwsh:*), Read
+---
+
 # /brief
 
 Give the user a fast, scannable orientation of this machine and their recent Claude Code activity, then offer to resume any recent session in a fresh pwsh window.
+
+If an argument was passed (`$ARGUMENTS`), short-circuit the interactive flow:
+- `skip` or empty - run steps 1-3 only, do not prompt for a resume choice.
+- `continue` / `latest` - run step 4 immediately with `claude --continue` against the most recent top-level session's `cwd`.
+- a positive integer - treat it as the session number from step 2 and launch step 4 directly.
+Otherwise follow all four steps below.
 
 You are being invoked inside a Claude Code session that the StartClaude watchdog spawned in `C:\Users\andre\repos\start-claude`. That means the watchdog's HTTP API is the freshest source of machine info, and the user might be reading this remotely (e.g. via Tailscale from a phone). Keep the brief short - one screen unless the user asks for more.
 
