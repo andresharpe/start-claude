@@ -59,6 +59,26 @@ All endpoints unauthenticated; access is gated by Tailscale + the Windows firewa
 - `POST /screenshots` - capture every connected monitor
 - `GET  /screenshots/{index}` - the captured PNG for one monitor
 
+## Security
+
+Read this before you run it. This service is powerful and deliberately trusting, so the safety comes from where you put it, not from the code.
+
+The HTTP API has no authentication. Anyone who can reach the port can spawn or kill Claude sessions, read recent logs, and capture a screenshot of every monitor. The service exists to run `claude --dangerously-skip-permissions`, so each session it starts already has full permissions with no approval prompts. The only thing standing between that power and the open internet is your network: the service binds to loopback plus your Tailscale address, and the installer adds a firewall rule for the Private and Domain profiles. Treat anyone with access to your tailnet as someone holding a remote shell on this machine.
+
+Do:
+
+- Run it only on a machine you own and trust, signed in as a user whose desktop you are comfortable screenshotting.
+- Keep the API on loopback and Tailscale only, and lock down your tailnet with ACLs so only your own devices can reach the port.
+- Be aware that screenshots capture whatever is on screen, including other windows and any secrets that happen to be visible.
+- Check the dashboard's public IP and Tailscale rows to confirm the machine is where you expect before you act on it remotely.
+
+Don't:
+
+- Do not port-forward the API or bind it to a public interface, and do not add the firewall rule to the Public profile.
+- Do not assume the non-standard port hides it. There is no password, so reachability is access.
+- Do not run it on a shared or untrusted network without Tailscale in front.
+- Do not expose the dashboard to anyone you would not hand a terminal on this machine, because spawn, kill, and screenshot together are full remote control.
+
 ## Secret scanning
 
 Commits are scanned for secrets by [gitleaks](https://github.com/gitleaks/gitleaks). The hook lives in `.githooks/pre-commit` and is wired up through `core.hooksPath`, so a fresh clone needs one command to enable it:
