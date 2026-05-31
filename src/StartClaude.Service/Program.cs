@@ -85,6 +85,7 @@ async function load() {
       ['Launcher task', s.config.launcherTaskName],
       ['HTTP port',     s.config.port],
       ['Tailscale IP',  s.tailscaleIp || '(none)'],
+      ['Public IP',     s.publicIp || '(unknown)'],
       ['Processes',     (s.processes||[]).map(p=>`#${p.pid}`).join(', ') || '-'],
     ];
     g.innerHTML = rows.map(([k,v])=>`<div>${k}</div><div>${escapeHtml(String(v))}</div>`).join('');
@@ -216,6 +217,7 @@ try
     builder.Services.AddHostedService(sp => sp.GetRequiredService<WatchdogService>());
     builder.Services.AddSingleton<VitalsSampler>();
     builder.Services.AddSingleton<Screenshooter>();
+    builder.Services.AddSingleton<PublicIpProvider>();
 
     var app = builder.Build();
 
@@ -230,7 +232,7 @@ try
 
     app.MapGet("/healthz", () => Results.Ok(new { ok = true, utc = DateTime.UtcNow }));
 
-    app.MapGet("/status", (StatusStore status, ClaudeProcessQuery query, VitalsSampler vitals, WatchdogOptions wopt, HttpOptions hopt) =>
+    app.MapGet("/status", (StatusStore status, ClaudeProcessQuery query, VitalsSampler vitals, PublicIpProvider publicIp, WatchdogOptions wopt, HttpOptions hopt) =>
     {
         var procs = query.FindTargetProcesses();
         var v = vitals.CurrentSnapshot();
@@ -251,6 +253,7 @@ try
                 hopt.Port,
             },
             tailscaleIp = TryDiscoverTailscaleIp(hopt.TailscaleInterfaceNameContains)?.ToString(),
+            publicIp = publicIp.Current(),
             vitals = new
             {
                 v.MachineName,
