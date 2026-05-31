@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Block commits that contain secrets. Requires gitleaks on PATH.
+# Bypass intentionally with: git commit --no-verify
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "gitleaks not found on PATH - skipping secret scan." >&2
+    echo "Install it from https://github.com/gitleaks/gitleaks to enable the pre-commit guard." >&2
+    exit 0
+fi
+
+gitleaks git --staged --redact --no-banner --verbose
