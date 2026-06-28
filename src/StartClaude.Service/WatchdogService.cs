@@ -10,6 +10,7 @@ public sealed class WatchdogService : BackgroundService
     private readonly Spawner _spawner;
     private readonly StatusStore _status;
     private readonly ILogger<WatchdogService> _logger;
+    private DateTimeOffset _lastSpawnUtc = DateTimeOffset.MinValue;
 
     public WatchdogService(
         WatchdogOptions options,
@@ -65,9 +66,21 @@ public sealed class WatchdogService : BackgroundService
 
             if (procs.Count == 0)
             {
+                var launcherAlive = _query.FindLauncherProcesses().Count > 0;
+                var withinCooldown =
+                    DateTimeOffset.UtcNow - _lastSpawnUtc < TimeSpan.FromSeconds(_options.SpawnCooldownSeconds);
+
+                if (launcherAlive && withinCooldown)
+                {
+                    // A launch we requested is still booting claude. Don't stack windows.
+                    _logger.LogDebug("Launch in flight (launcher pwsh alive, within cooldown), skipping trigger");
+                    return;
+                }
+
                 _logger.LogWarning("No target claude.exe found, triggering launcher task");
                 if (_spawner.TriggerLauncher(out var output))
                 {
+                    _lastSpawnUtc = DateTimeOffset.UtcNow;
                     _status.RecordSpawn();
                 }
                 else

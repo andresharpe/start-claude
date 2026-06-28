@@ -53,6 +53,51 @@ public sealed class ClaudeProcessQuery
         return results;
     }
 
+    /// <summary>
+    /// Find pwsh.exe processes whose command line matches the launcher signature. These
+    /// are launches the watchdog itself requested that are either still booting claude or
+    /// already hosting it. Used to avoid stacking duplicate windows during boot.
+    /// </summary>
+    public IReadOnlyList<ClaudeProcessInfo> FindLauncherProcesses()
+    {
+        var match = _options.LauncherCommandLineMatch;
+        var results = new List<ClaudeProcessInfo>();
+        if (string.IsNullOrWhiteSpace(match))
+        {
+            return results;
+        }
+
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name='pwsh.exe'");
+            using var collection = searcher.Get();
+            foreach (ManagementObject mo in collection)
+            {
+                try
+                {
+                    var cmdLine = mo["CommandLine"] as string ?? string.Empty;
+                    if (cmdLine.Contains(match, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var pid = Convert.ToInt32(mo["ProcessId"]);
+                        var exePath = mo["ExecutablePath"] as string ?? string.Empty;
+                        results.Add(new ClaudeProcessInfo(pid, exePath, cmdLine));
+                    }
+                }
+                finally
+                {
+                    mo.Dispose();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enumerate launcher pwsh.exe processes via WMI");
+        }
+
+        return results;
+    }
+
     public int KillAllTargets()
     {
         var killed = 0;

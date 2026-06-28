@@ -15,6 +15,21 @@ public sealed class WatchdogOptions
     public string LauncherTaskName { get; set; } = "StartClaudeLauncher";
     public bool ImmediateCheckOnStartup { get; set; } = true;
 
+    /// <summary>
+    /// After triggering a launch, treat a still-running launcher process as a boot in
+    /// progress for this many seconds. Past this window, if no claude.exe is present the
+    /// watchdog launches again, so a launcher window whose claude has exited still gets
+    /// recovered. Default comfortably covers a cold start at the 60s poll interval.
+    /// </summary>
+    public int SpawnCooldownSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Substring matched (case-insensitive) against pwsh.exe command lines to recognise an
+    /// in-flight launcher the watchdog itself started. Mirrors the launcher task's command
+    /// in scripts/install.ps1.
+    /// </summary>
+    public string LauncherCommandLineMatch { get; set; } = "claude --dangerously-skip-permissions";
+
     /// <summary>Default claude.exe location under the current user profile.</summary>
     public static string ResolveClaudeExecutablePath() =>
         Path.Combine(
