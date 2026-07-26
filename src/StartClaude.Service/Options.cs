@@ -41,6 +41,18 @@ public sealed class HttpOptions
 {
     public int Port { get; set; } = 19720;
     public string TailscaleInterfaceNameContains { get; set; } = "Tailscale";
+
+    /// <summary>
+    /// How long to wait at startup for the Tailscale interface to acquire an IPv4
+    /// address before giving up and binding loopback only. At boot this service
+    /// otherwise starts first, finds no interface, and stays unreachable over the
+    /// tailnet for the life of the process. Kept under the service control
+    /// manager's 30s start timeout, since this runs before the host reports
+    /// started. install.ps1 also makes the service depend on Tailscale, so this
+    /// wait only has to cover the gap between that service running and the
+    /// interface holding an address.
+    /// </summary>
+    public int TailscaleWaitSeconds { get; set; } = 20;
 }
 
 public sealed class LogOptions

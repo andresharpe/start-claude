@@ -50,6 +50,7 @@ $TaskName        = 'StartClaudeLauncher'
 $ScreenshotTask  = 'StartClaudeScreenshot'
 $ScreenshotDir   = Join-Path $env:ProgramData 'StartClaude\screenshots'
 $FirewallRule    = 'StartClaudeService HTTP API'
+$TailscaleSvc    = 'Tailscale'
 $ProjectPath     = Join-Path $RepoRoot 'src\StartClaude.Service\StartClaude.Service.csproj'
 $ScreenshotScript = Join-Path $RepoRoot 'scripts\Take-Screenshots.ps1'
 
@@ -194,6 +195,22 @@ if ($RunServiceAsUser) {
                 -Description 'Keeps at least one Claude Code session alive and exposes an HTTP control API.' `
                 -StartupType Automatic | Out-Null
 }
+
+# 3b. Start after Tailscale. The service binds the Tailscale address once at
+#     startup, so losing the boot race leaves it on loopback only and unreachable
+#     over the tailnet. This dependency holds us back until Tailscale reports
+#     running, and Http:TailscaleWaitSeconds then covers the remaining gap between
+#     the service running and the interface holding an address.
+if (Get-Service -Name $TailscaleSvc -ErrorAction SilentlyContinue) {
+    Write-Host "==> Making '$ServiceName' depend on '$TailscaleSvc'" -ForegroundColor Cyan
+    sc.exe config $ServiceName depend= $TailscaleSvc | Out-Null
+} else {
+    Write-Warning "Service '$TailscaleSvc' not found - skipping the start-order dependency. The dashboard may be loopback-only after a reboot."
+}
+# Generic crash recovery. This does not cover a Tailscale wait that times out: the
+# service starts successfully on loopback in that case, so it never reports failure.
+# The dashboard flags that state and a manual restart rebinds.
+sc.exe failure $ServiceName reset= 3600 actions= restart/30000/restart/60000/restart/60000 | Out-Null
 
 # 4. Merge global claude settings.
 Write-Host "==> Merging global Claude settings" -ForegroundColor Cyan

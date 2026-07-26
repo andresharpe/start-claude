@@ -84,7 +84,12 @@ async function load() {
       ['Claude exe',    s.config.claudeExecutablePath],
       ['Launcher task', s.config.launcherTaskName],
       ['HTTP port',     s.config.port],
-      ['Tailscale IP',  s.tailscaleIp || '(none)'],
+      ['Tailscale bind', s.tailscaleIp
+                         ? s.tailscaleIp + (s.tailscaleIpCurrent && s.tailscaleIpCurrent !== s.tailscaleIp
+                             ? ` (interface now ${s.tailscaleIpCurrent} - restart to rebind)` : '')
+                         : (s.tailscaleIpCurrent
+                             ? `not bound - interface is ${s.tailscaleIpCurrent}, restart to rebind`
+                             : '(no interface)')],
       ['Public IP',     s.publicIp || '(unknown)'],
       ['Processes',     (s.processes||[]).map(p=>`#${p.pid}`).join(', ') || '-'],
     ];
@@ -199,10 +204,20 @@ try
     });
 
     // Kestrel binding: localhost always, plus Tailscale interface when present.
+    // Discovery has to wait: started automatically at boot, this service reaches
+    // here before Tailscale has assigned its IPv4 address, and a single check
+    // binds loopback only for the life of the process. Kestrel cannot add a
+    // listener afterwards, so the dashboard stays unreachable over the tailnet
+    // until someone restarts the service.
+    var tailscaleWatch = System.Diagnostics.Stopwatch.StartNew();
+    var tailscaleIp = WaitForTailscaleIp(
+        httpOptions.TailscaleInterfaceNameContains,
+        TimeSpan.FromSeconds(Math.Max(0, httpOptions.TailscaleWaitSeconds)));
+    tailscaleWatch.Stop();
+
     builder.WebHost.ConfigureKestrel((ctx, k) =>
     {
         k.Listen(IPAddress.Loopback, httpOptions.Port);
-        var tailscaleIp = TryDiscoverTailscaleIp(httpOptions.TailscaleInterfaceNameContains);
         if (tailscaleIp is not null)
         {
             k.Listen(tailscaleIp, httpOptions.Port);
@@ -221,12 +236,15 @@ try
 
     var app = builder.Build();
 
+    // Logged here rather than during the wait above, because the file sink only
+    // exists once the host is built. The elapsed time tells us whether a boot
+    // race happened and how close the wait ran to its budget.
     app.Logger.LogInformation(
         "Listening on http://127.0.0.1:{Port}{Tail}",
         httpOptions.Port,
-        TryDiscoverTailscaleIp(httpOptions.TailscaleInterfaceNameContains) is { } tip
-            ? $" and http://{tip}:{httpOptions.Port}"
-            : " (no Tailscale interface found)");
+        tailscaleIp is not null
+            ? $" and http://{tailscaleIp}:{httpOptions.Port} (interface ready after {tailscaleWatch.Elapsed.TotalSeconds:F1}s)"
+            : $" only - no Tailscale interface after waiting {tailscaleWatch.Elapsed.TotalSeconds:F1}s, so the tailnet cannot reach this service until it restarts");
 
     app.MapGet("/", () => Results.Content(DashboardHtml, "text/html; charset=utf-8"));
 
@@ -252,7 +270,11 @@ try
                 wopt.LauncherTaskName,
                 hopt.Port,
             },
-            tailscaleIp = TryDiscoverTailscaleIp(hopt.TailscaleInterfaceNameContains)?.ToString(),
+            // Bound is what actually serves the tailnet; current is what the
+            // interface holds right now. They differ when the interface appeared
+            // after startup or changed address, which means a restart is needed.
+            tailscaleIp = tailscaleIp?.ToString(),
+            tailscaleIpCurrent = TryDiscoverTailscaleIp(hopt.TailscaleInterfaceNameContains)?.ToString(),
             publicIp = publicIp.Current(),
             vitals = new
             {
@@ -336,6 +358,21 @@ finally
 }
 
 return 0;
+
+/// <summary>
+/// Polls for the Tailscale interface until it has an IPv4 address or the timeout
+/// expires. Returns null on timeout, which leaves the caller bound to loopback.
+/// </summary>
+static IPAddress? WaitForTailscaleIp(string interfaceNameContains, TimeSpan timeout)
+{
+    var deadline = DateTime.UtcNow + timeout;
+    while (true)
+    {
+        if (TryDiscoverTailscaleIp(interfaceNameContains) is { } ip) return ip;
+        if (DateTime.UtcNow >= deadline) return null;
+        Thread.Sleep(500);
+    }
+}
 
 static IPAddress? TryDiscoverTailscaleIp(string interfaceNameContains)
 {
