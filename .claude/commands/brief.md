@@ -23,7 +23,9 @@ The script emits a single compact JSON object:
 ```
 {
   "vitals":   { ...watchdog /status payload, or local fallback... },
-  "sessions": [ { lastActivityUtc, sessionId, cwd, path, sizeKiB, firstPrompt }, ... ]
+  "sessions": [ { lastActivityUtc, sessionId, cwd, path, sizeKiB, firstPrompt }, ... ],
+  "backup":   { ...pc-backup's Get-BackupStatus.ps1 -AsJson output, or
+                 { available: false, reason: <text> } if that call failed... }
 }
 ```
 
@@ -46,6 +48,7 @@ machine status
 | disk C:      | <used GiB> / <total GiB> GiB             |
 | public IP    | <vitals.publicIp>         (skip if null) |
 | claude procs | <vitals.targetClaudeCount>               |
+| backup       | <one line - see "backup line" below>     |
 
 recent sessions
 
@@ -60,6 +63,11 @@ Conversion rules:
 - Keep ISO 8601 UTC timestamps as-is.
 - Trim cwd by stripping the leading `C:\Users\andre\` so it reads as `repos\start-claude`.
 - No emojis. No em dashes. Hyphens fine.
+
+Backup line, from `backup`:
+- `backup.available == false` - the call to Get-BackupStatus.ps1 itself failed. Render `UNAVAILABLE: <backup.reason>`. This must stay visible, not be softened or skipped - a broken integration should look broken.
+- `backup.healthy == true` - render `healthy, last success <backup.ageHours>h ago`. Short, unremarkable.
+- `backup.healthy == false` - render `backup.summary` verbatim. It already names the specific problem and what to do about it (disk not connected vs. runs failing), so do not shorten or paraphrase it.
 
 End with one line:
 

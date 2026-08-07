@@ -12,7 +12,10 @@
   Output shape:
     {
       "vitals":   { ...status object from the watchdog API, or local fallback... },
-      "sessions": [ { lastActivityUtc, sessionId, cwd, path, sizeKiB, firstPrompt }, ... ]
+      "sessions": [ { lastActivityUtc, sessionId, cwd, path, sizeKiB, firstPrompt }, ... ],
+      "backup":   { ...output of pc-backup's Get-BackupStatus.ps1 -AsJson,
+                     or { available: false, reason: <text> } if that call
+                     failed, threw, or the script was missing... }
     }
 #>
 
@@ -83,4 +86,30 @@ $sessions = foreach ($f in $files) {
     }
 }
 
-[pscustomobject]@{ vitals = $vitals; sessions = @($sessions) } | ConvertTo-Json -Depth 8 -Compress
+
+# 3) Backup status, from pc-backup's own status script. That script already
+#    reads its own disk-or-cache fallback and decides what's healthy, so
+#    this just calls it and carries the result through. A missing or
+#    failing script must not break /brief, and must not be silently dropped
+#    either - the user specifically wants a broken integration to be
+#    visible, not indistinguishable from a healthy backup, so failure here
+#    still produces a "backup" key, just one that says it is unavailable
+#    and why.
+$backupStatusScript = 'C:\Users\andre\repos\pc-backup\scripts\Get-BackupStatus.ps1'
+$backup = try {
+    if (-not (Test-Path -LiteralPath $backupStatusScript -PathType Leaf)) {
+        throw "Get-BackupStatus.ps1 not found at $backupStatusScript"
+    }
+    $backupJson = & $backupStatusScript -AsJson -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace([string]$backupJson)) {
+        throw 'Get-BackupStatus.ps1 produced no output.'
+    }
+    $backupJson | ConvertFrom-Json -ErrorAction Stop
+} catch {
+    [pscustomobject]@{
+        available = $false
+        reason    = "backup status unavailable: $($_.Exception.Message)"
+    }
+}
+
+[pscustomobject]@{ vitals = $vitals; sessions = @($sessions); backup = $backup } | ConvertTo-Json -Depth 8 -Compress
