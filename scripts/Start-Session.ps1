@@ -103,19 +103,25 @@ $alreadyRunning = @(
         Where-Object { $_.ExecutablePath -eq $watchdogPath }
 ).Count
 
-# A new window must not inherit the identity of the session that launched it.
-# Claude Code runs its tool subprocesses with CLAUDE_CODE_CHILD_SESSION=1, and
-# Start-Process passes the whole environment down, so without this the new
-# session believes it is a child of the launching one and turns transcript
-# saving off. The other three name the launching session and its process, which
-# are equally wrong in a fresh window. Configuration such as
-# CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is deliberately left alone: identity is what
-# must not be inherited, not settings.
+# A new window must not inherit the markers Claude Code injects into its tool
+# subprocesses, and Start-Process passes the whole environment down.
+# CLAUDE_CODE_CHILD_SESSION makes the new session think it is a child and turns
+# transcript saving off. The session and process identifiers name the launching
+# session, which is equally wrong in a fresh window. NO_COLOR strips all color
+# from the new window. CLAUDECODE trips nested-session detection, and
+# GIT_TERMINAL_PROMPT=0 silently disables git credential prompts in what is an
+# interactive window. Configuration such as CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is
+# deliberately left alone: injected markers must not be inherited, settings
+# may be. Keep this list in sync with ~/.claude/skills/open-repo.
 $inherited = @(
     'CLAUDE_CODE_CHILD_SESSION'
     'CLAUDE_CODE_SESSION_ID'
     'CLAUDE_CODE_BRIDGE_SESSION_ID'
+    'CLAUDE_CODE_ENTRYPOINT'
     'CLAUDE_PID'
+    'CLAUDECODE'
+    'NO_COLOR'
+    'GIT_TERMINAL_PROMPT'
 )
 $clearEnv = ($inherited | ForEach-Object { "Remove-Item Env:$_ -ErrorAction SilentlyContinue" }) -join '; '
 
