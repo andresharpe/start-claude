@@ -495,3 +495,6 @@ out/
 
 ## Editor / scratch backups
 *.bak
+
+## Throwaway working files. Nothing here belongs in the repo.
+scratch/
