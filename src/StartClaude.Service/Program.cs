@@ -1,6 +1,4 @@
 using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Runtime.Versioning;
 using Serilog;
 using StartClaude.Service;
@@ -86,9 +84,9 @@ async function load() {
       ['HTTP port',     s.config.port],
       ['Tailscale bind', s.tailscaleIp
                          ? s.tailscaleIp + (s.tailscaleIpCurrent && s.tailscaleIpCurrent !== s.tailscaleIp
-                             ? ` (interface now ${s.tailscaleIpCurrent} - restart to rebind)` : '')
+                             ? ` (interface now ${s.tailscaleIpCurrent} - rebinding automatically within ~2 min)` : '')
                          : (s.tailscaleIpCurrent
-                             ? `not bound - interface is ${s.tailscaleIpCurrent}, restart to rebind`
+                             ? `not bound - interface is ${s.tailscaleIpCurrent}, rebinding automatically within ~2 min`
                              : '(no interface)')],
       ['Public IP',     s.publicIp || '(unknown)'],
       ['Processes',     (s.processes||[]).map(p=>`#${p.pid}`).join(', ') || '-'],
@@ -205,12 +203,12 @@ try
 
     // Kestrel binding: localhost always, plus Tailscale interface when present.
     // Discovery has to wait: started automatically at boot, this service reaches
-    // here before Tailscale has assigned its IPv4 address, and a single check
-    // binds loopback only for the life of the process. Kestrel cannot add a
-    // listener afterwards, so the dashboard stays unreachable over the tailnet
-    // until someone restarts the service.
+    // here before Tailscale has assigned its IPv4 address, and Kestrel cannot
+    // add a listener after start. When the wait times out or the address later
+    // changes, the watchdog notices on its poll and exits the process so the
+    // service control manager restarts it with the right bind.
     var tailscaleWatch = System.Diagnostics.Stopwatch.StartNew();
-    var tailscaleIp = WaitForTailscaleIp(
+    var tailscaleIp = TailscaleNetwork.WaitForTailscaleIp(
         httpOptions.TailscaleInterfaceNameContains,
         TimeSpan.FromSeconds(Math.Max(0, httpOptions.TailscaleWaitSeconds)));
     tailscaleWatch.Stop();
@@ -225,6 +223,7 @@ try
     });
 
     // Watchdog + helpers.
+    builder.Services.AddSingleton(new TailscaleBindingState(tailscaleIp));
     builder.Services.AddSingleton<StatusStore>();
     builder.Services.AddSingleton<ClaudeProcessQuery>();
     builder.Services.AddSingleton<Spawner>();
@@ -244,7 +243,7 @@ try
         httpOptions.Port,
         tailscaleIp is not null
             ? $" and http://{tailscaleIp}:{httpOptions.Port} (interface ready after {tailscaleWatch.Elapsed.TotalSeconds:F1}s)"
-            : $" only - no Tailscale interface after waiting {tailscaleWatch.Elapsed.TotalSeconds:F1}s, so the tailnet cannot reach this service until it restarts");
+            : $" only - no Tailscale interface after waiting {tailscaleWatch.Elapsed.TotalSeconds:F1}s; the watchdog will restart the service once the interface holds a tailnet address");
 
     app.MapGet("/", () => Results.Content(DashboardHtml, "text/html; charset=utf-8"));
 
@@ -272,9 +271,10 @@ try
             },
             // Bound is what actually serves the tailnet; current is what the
             // interface holds right now. They differ when the interface appeared
-            // after startup or changed address, which means a restart is needed.
+            // after startup or changed address; the watchdog restarts the
+            // service within a couple of polls to rebind.
             tailscaleIp = tailscaleIp?.ToString(),
-            tailscaleIpCurrent = TryDiscoverTailscaleIp(hopt.TailscaleInterfaceNameContains)?.ToString(),
+            tailscaleIpCurrent = TailscaleNetwork.TryDiscoverTailscaleIp(hopt.TailscaleInterfaceNameContains)?.ToString(),
             publicIp = publicIp.Current(),
             vitals = new
             {
@@ -358,49 +358,6 @@ finally
 }
 
 return 0;
-
-/// <summary>
-/// Polls for the Tailscale interface until it has an IPv4 address or the timeout
-/// expires. Returns null on timeout, which leaves the caller bound to loopback.
-/// </summary>
-static IPAddress? WaitForTailscaleIp(string interfaceNameContains, TimeSpan timeout)
-{
-    var deadline = DateTime.UtcNow + timeout;
-    while (true)
-    {
-        if (TryDiscoverTailscaleIp(interfaceNameContains) is { } ip) return ip;
-        if (DateTime.UtcNow >= deadline) return null;
-        Thread.Sleep(500);
-    }
-}
-
-static IPAddress? TryDiscoverTailscaleIp(string interfaceNameContains)
-{
-    try
-    {
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus != OperationalStatus.Up) continue;
-            if (nic.Name.IndexOf(interfaceNameContains, StringComparison.OrdinalIgnoreCase) < 0 &&
-                nic.Description.IndexOf(interfaceNameContains, StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                continue;
-            }
-            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
-            {
-                if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
-                {
-                    return ua.Address;
-                }
-            }
-        }
-    }
-    catch
-    {
-        // best effort
-    }
-    return null;
-}
 
 static string ReadTodayLogTail(string pattern, int lines)
 {

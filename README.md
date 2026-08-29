@@ -12,7 +12,8 @@ This service removes that wait. It watches for a missing `claude.exe` and relaun
 
 - Polls every 60 seconds for any `claude.exe` running from `%USERPROFILE%\.local\bin\claude.exe` (configurable via `Watchdog:ClaudeExecutablePath`).
 - If none is found, triggers the `StartClaudeLauncher` Scheduled Task, which opens a visible `pwsh -NoExit` window in the repo folder and runs `claude --dangerously-skip-permissions`.
-- Exposes an HTTP control API on port `19720` by default (loopback + Tailscale IPv4), configurable via `Http:Port`.
+- Exposes an HTTP control API on port `19720` by default (loopback + Tailscale IPv4), configurable via `Http:Port`. Only addresses in Tailscale's `100.64.0.0/10` range count as a Tailscale bind.
+- Rebinds automatically: when the Tailscale address appears or changes after startup, the watchdog restarts the service within a couple of polls to pick it up. A Tailscale address that keeps flapping for six-plus minutes can exhaust the service control manager's three-restarts-per-hour budget and leave the service down until the hourly window resets.
 
 ## Install
 

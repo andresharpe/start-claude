@@ -207,9 +207,10 @@ if (Get-Service -Name $TailscaleSvc -ErrorAction SilentlyContinue) {
 } else {
     Write-Warning "Service '$TailscaleSvc' not found - skipping the start-order dependency. The dashboard may be loopback-only after a reboot."
 }
-# Generic crash recovery. This does not cover a Tailscale wait that times out: the
-# service starts successfully on loopback in that case, so it never reports failure.
-# The dashboard flags that state and a manual restart rebinds.
+# Crash recovery. This also powers the automatic rebind: when the watchdog sees
+# the Tailscale address appear or change after startup, it exits the process
+# abnormally on purpose, and these failure actions restart the service so it
+# binds the right address.
 sc.exe failure $ServiceName reset= 3600 actions= restart/30000/restart/60000/restart/60000 | Out-Null
 
 # 4. Merge global claude settings.
